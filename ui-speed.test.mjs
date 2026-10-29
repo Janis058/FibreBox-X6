@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {elapsedSeconds,canRefresh,issueAdvice,navIcon} from './public/ui-helpers.js';
+import {runSpeedtest,DOWNLOAD_BYTES,UPLOAD_BYTES} from './speedtest.mjs';
+test('Laufzeiten zählen ohne Anfrage weiter und vertragen eine verzögerte Aktualisierung',()=>{assert.equal(elapsedSeconds(587827,1000,4500),587830);assert.equal(elapsedSeconds(0,1000,1000),0);assert.equal(elapsedSeconds(100,1000,121000),220);});
+test('Automatische Abfrage pausiert bei verdecktem Tab, Eingaben, Dialogen und Speedtest',()=>{const state={authenticated:true,demo:false,hidden:false,loading:false,dialogOpen:false,editing:false,speedRunning:false};assert.equal(canRefresh(state),true);for(const flag of ['hidden','loading','dialogOpen','editing','speedRunning'])assert.equal(canRefresh({...state,[flag]:true}),false);assert.equal(canRefresh({...state,authenticated:false}),false);});
+test('Auffälligkeiten haben passende Ursachen und Navigation verwendet skalierbare Symbole',()=>{assert.match(issueAdvice({kind:'ip-conflict'}).causes,/MAC/);assert.match(issueAdvice({kind:'reservation'}).check,/reservierte IP/);assert.match(issueAdvice({kind:'wan'}).causes,/Glasfaser/);assert.match(navIcon('system'),/<svg/);});
+test('Kurztest nutzt nur feste Messendpunkte, begrenzte Zufallsdaten und keine Routeranmeldung',async()=>{
+ const calls=[];let time=0;const result=await runSpeedtest({now:()=>time+=100,transport:async(url,options)=>{calls.push({url,options});assert.equal(options.redirect,'error');assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.Cookie,undefined);if(url.endsWith('__up')){assert.equal(options.body.length,UPLOAD_BYTES);return {ok:true,body:{cancel:async()=>{}}};}return {ok:true,arrayBuffer:async()=>new ArrayBuffer(0),body:(async function*(){yield new Uint8Array(DOWNLOAD_BYTES);})()};}});
+ assert.equal(calls.length,5);assert.ok(calls.every(c=>c.url.startsWith('https://speed.cloudflare.com/')));assert.equal(result.downloadMbps,960);assert.equal(result.uploadMbps,320);assert.equal(result.latencyMs,100);
+});
+test('Fehlgeschlagene oder unvollständige Speedtests liefern keinen erfundenen Messwert',async()=>{await assert.rejects(runSpeedtest({transport:async()=>({ok:false})}),/Messserver/);await assert.rejects(runSpeedtest({transport:async()=>({ok:true,arrayBuffer:async()=>new ArrayBuffer(0),body:(async function*(){yield new Uint8Array(1);})()})}),/unvollständig/);});
